@@ -3,7 +3,6 @@ package orderer
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"github.com/anduschain/go-anduschain/common"
@@ -11,35 +10,36 @@ import (
 	"github.com/anduschain/go-anduschain/fairnode/verify"
 	"github.com/anduschain/go-anduschain/orderer/ordererdb"
 	proto "github.com/anduschain/go-anduschain/protos/common"
-	"google.golang.org/grpc"
+	"github.com/anduschain/go-anduschain/protos/orderer"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"math/big"
 	"sync"
 	"time"
 )
 
 var (
-	emptyByte []byte
+	emptyByte      []byte
+	TX_SEND_PERIOD = 2 * time.Second
 )
 
-type ordererServer interface {
-	SignHash(hash []byte) ([]byte, error)
-	Database() ordererdb.OrdererDB
-	GetPrivateKey() *ecdsa.PrivateKey
-	GetAddress() common.Address
-	GetChainID() *big.Int
+type txClient struct {
+	svr         orderer.OrdererService_ProcessControllerServer
+	participate *proto.Participate
 }
 
 // orderer rpc method implemented
 type rpcServer struct {
 	mu sync.RWMutex
-	os ordererServer
+	os *Orderer
 	db ordererdb.OrdererDB
+
+	clients map[string]txClient
 }
 
-func (r rpcServer) ProcessController(participate *proto.Participate, stream grpc.ServerStreamingServer[proto.TransactionList]) error {
+func (r rpcServer) ProcessController(participate *proto.Participate, stream orderer.OrdererService_ProcessControllerServer) error {
+	// CHECK PARTICIPATE
 	if participate.GetEnode() == "" {
 		return errorEmpty("enode")
 	}
@@ -68,8 +68,21 @@ func (r rpcServer) ProcessController(participate *proto.Participate, stream grpc
 		return errors.New(fmt.Sprintf("sign validation failed msg=%s", err.Error()))
 	}
 
-	rHash := common.Hash{}
+	uid := uuid.Must(uuid.NewRandom()).String()
+	defer func() {
+		r.os.mu.Lock()
+		delete(r.clients, uid)
+		r.os.mu.Unlock()
+	}()
+	r.mu.Lock()
+	r.clients[uid] = txClient{
+		svr:         stream,
+		participate: participate,
+	}
+	r.mu.Unlock()
+
 	makeMsg := func(txs []proto.Transaction) *proto.TransactionList {
+		rHash := common.Hash{}
 		var msg proto.TransactionList
 		msg.ChainID = r.os.GetChainID().Uint64()
 		msg.Address = r.os.GetAddress().String()
@@ -93,25 +106,31 @@ func (r rpcServer) ProcessController(participate *proto.Participate, stream grpc
 
 		return &msg
 	}
+	ticker := time.NewTicker(TX_SEND_PERIOD)
+	defer ticker.Stop()
 
 	for {
-		txlist, err := r.db.GetTransactionListFromTxPool()
-		if err == nil {
-			m := makeMsg(txlist) // make message
+		select {
+		case <-ticker.C:
+			txlist, err := r.db.GetTransactionListFromTxPool()
+			if err == nil {
+				m := makeMsg(txlist) // make message
+				for _, client := range r.clients {
+					if err := client.svr.Send(m); err != nil {
+						grpcErr, ok := status.FromError(err)
+						if ok {
+							if grpcErr.Code() == codes.Unavailable {
+								return nil
+							} else {
+								logger.Error("ProcessController gRPC Error", "code", grpcErr.Code(), "msg", grpcErr.Message())
+							}
+						} else {
+							logger.Error("ProcessController send status message", "msg", err)
+						}
 
-			if err := stream.Send(m); err != nil {
-				grpcErr, ok := status.FromError(err)
-				if ok {
-					if grpcErr.Code() == codes.Unavailable {
-						return nil
-					} else {
-						logger.Error("ProcessController gRPC Error", "code", grpcErr.Code(), "msg", grpcErr.Message())
+						return err
 					}
-				} else {
-					logger.Error("ProcessController send status message", "msg", err)
 				}
-
-				return err
 			}
 		}
 
@@ -182,9 +201,10 @@ func (r *rpcServer) RequestOtprn(ctx context.Context, nodeInfo *proto.ReqOtprn) 
 	}, nil
 }
 
-func newServer(os ordererServer) *rpcServer {
+func newServer(os *Orderer) *rpcServer {
 	return &rpcServer{
-		os: os,
-		db: os.Database(),
+		os:      os,
+		db:      os.Database(),
+		clients: make(map[string]txClient),
 	}
 }

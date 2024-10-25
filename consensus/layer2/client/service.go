@@ -122,11 +122,11 @@ func (lc *Layer2Client) receiveOrdererTransactionLoop(errCh chan error) {
 		errCh <- errors.New("receiveOrdererTransactionLoop was dead")
 		log.Warn("receiveOrdererTransactionLoop was dead")
 	}()
-
+	log.Info("========= CSW receiveOrdererTransactionLoop1")
 	if err := lc.requestOtprn(); err != nil {
 		errCh <- err
 	}
-
+	log.Info("========= CSW requestOtprn")
 	msg := proto.Participate{
 		Enode:        lc.miner.Node.Enode,
 		MinerAddress: lc.miner.Node.MinerAddress,
@@ -146,7 +146,7 @@ func (lc *Layer2Client) receiveOrdererTransactionLoop(errCh chan error) {
 	}
 
 	msg.Sign = sign
-
+	log.Info("========= CSW ProcessController Before")
 	stream, err := lc.rpc.ProcessController(lc.ctx, &msg)
 	if err != nil {
 		log.Error("ProcessController", "msg", err)
