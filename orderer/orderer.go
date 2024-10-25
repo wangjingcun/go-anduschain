@@ -2,6 +2,7 @@ package orderer
 
 import (
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"github.com/anduschain/go-anduschain/common"
 	"github.com/anduschain/go-anduschain/crypto"
@@ -127,6 +128,7 @@ func (fn *Orderer) severLoop() {
 
 func (fn *Orderer) Stop() {
 	//fn.fnSyncer.Stop()
+	fn.errCh <- errors.New("orderer stopped")
 	fn.db.Stop()
 	fn.gRpcServer.Stop()
 	fn.tcpListener.Close()

@@ -35,6 +35,8 @@ type rpcServer struct {
 	os *Orderer
 	db ordererdb.OrdererDB
 
+	ticker *time.Ticker
+
 	clients map[string]txClient
 }
 
@@ -81,6 +83,20 @@ func (r rpcServer) ProcessController(participate *proto.Participate, stream orde
 	}
 	r.mu.Unlock()
 
+	<-stream.Context().Done()
+	logger.Info("Client disconnected")
+	return nil
+}
+
+func errorEmpty(key string) error {
+	return errors.New(fmt.Sprintf("%s value is empty", key))
+}
+
+func (r rpcServer) BroadCastTransaction() {
+	defer func() {
+		logger.Info("gRPC BroadCast Stop...")
+	}()
+
 	makeMsg := func(txs []proto.Transaction) *proto.TransactionList {
 		rHash := common.Hash{}
 		var msg proto.TransactionList
@@ -106,12 +122,13 @@ func (r rpcServer) ProcessController(participate *proto.Participate, stream orde
 
 		return &msg
 	}
-	ticker := time.NewTicker(TX_SEND_PERIOD)
-	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-r.os.errCh:
+			logger.Info("gRPC BroadCast Stop...")
+			return
+		case <-r.ticker.C:
 			txlist, err := r.db.GetTransactionListFromTxPool()
 			if err == nil {
 				m := makeMsg(txlist) // make message
@@ -119,27 +136,17 @@ func (r rpcServer) ProcessController(participate *proto.Participate, stream orde
 					if err := client.svr.Send(m); err != nil {
 						grpcErr, ok := status.FromError(err)
 						if ok {
-							if grpcErr.Code() == codes.Unavailable {
-								return nil
-							} else {
+							if grpcErr.Code() != codes.Unavailable {
 								logger.Error("ProcessController gRPC Error", "code", grpcErr.Code(), "msg", grpcErr.Message())
 							}
 						} else {
 							logger.Error("ProcessController send status message", "msg", err)
 						}
-
-						return err
 					}
 				}
 			}
 		}
-
-		time.Sleep(2 * time.Second)
 	}
-}
-
-func errorEmpty(key string) error {
-	return errors.New(fmt.Sprintf("%s value is empty", key))
 }
 
 func (r rpcServer) HeartBeat(ctx context.Context, beat *proto.HeartBeat) (*emptypb.Empty, error) {
@@ -202,9 +209,14 @@ func (r *rpcServer) RequestOtprn(ctx context.Context, nodeInfo *proto.ReqOtprn) 
 }
 
 func newServer(os *Orderer) *rpcServer {
-	return &rpcServer{
+	rtn := &rpcServer{
 		os:      os,
 		db:      os.Database(),
 		clients: make(map[string]txClient),
+		ticker:  time.NewTicker(TX_SEND_PERIOD),
 	}
+
+	go rtn.BroadCastTransaction()
+
+	return rtn
 }

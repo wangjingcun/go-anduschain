@@ -155,7 +155,7 @@ func init() {
 			signal.Notify(sigc, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
 			defer signal.Stop(sigc)
 			<-sigc
-			logger.Warn("Got sigterm, shutting fairnode down...")
+			logger.Warn("Got sigterm, shutting orderer down...")
 			w.Done()
 		}()
 
