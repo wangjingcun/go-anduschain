@@ -146,7 +146,6 @@ func (lc *Layer2Client) receiveOrdererTransactionLoop(errCh chan error) {
 	}
 
 	msg.Sign = sign
-	log.Info("========= CSW ProcessController Before")
 	stream, err := lc.rpc.ProcessController(lc.ctx, &msg)
 	if err != nil {
 		log.Error("ProcessController", "msg", err)
@@ -158,7 +157,7 @@ func (lc *Layer2Client) receiveOrdererTransactionLoop(errCh chan error) {
 	for {
 		in, err := stream.Recv()
 		if err != nil {
-			log.Error("ProcessController stream receive", "msg", err)
+			log.Error("ProcessController stream receive Error", "msg", err)
 			return
 		}
 
@@ -187,5 +186,7 @@ func (lc *Layer2Client) receiveOrdererTransactionLoop(errCh chan error) {
 			return
 		}
 		// 이 리스트를 이용하여 블록생성.. 채굴과정으로 넘어가야 함
+		// 채널을 이용하여 마이너에 데이터 전송해줘야 함
+		// ToDo: CSW ===> aaaaaa
 	}
 }

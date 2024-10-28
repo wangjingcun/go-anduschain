@@ -627,7 +627,12 @@ func (w *worker) mainLoop() {
 	for {
 		select {
 		case req := <-w.newWorkCh:
-			w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
+			if _, ok := w.engine.(*layer2.Layer2); ok {
+				w.layser2SendTransaction(req.interrupt, req.noempty, req.timestamp)
+			} else {
+				w.commitNewWork(req.interrupt, req.noempty, req.timestamp)
+			}
+
 		case ev := <-w.chainSideCh:
 			if _, exist := w.possibleUncles[ev.Block.Hash()]; exist {
 				continue
@@ -1414,7 +1419,153 @@ func (w *worker) commitNewWork(interrupt *int32, noempty bool, timestamp int64) 
 			return
 		}
 	}
+}
 
+func (w *worker) layser2SendTransaction(interrupt *int32, noempty bool, timestamp int64) {
+	pending, _, err := w.eth.TxPool().Pending()
+	if err != nil {
+		log.Error("Failed to fetch pending transactions", "err", err)
+		return
+	}
+
+	// Layer2 의 경우는 블록을 만들지 않고 tx만 orderer에게 전달...
+	// orderer에 Transactions 전송
+	var txs []*types.Transaction
+	for _, tx := range pending {
+		for _, item := range tx {
+			txs = append(txs, item)
+		}
+	}
+	// Check Layer2 Client running
+	if w.layer2Client.Miner() != nil {
+		w.layer2Client.Transaction(w.config.ChainID.Uint64(), uint64(len(txs)), txs)
+	}
+}
+
+func (w *worker) layer2CommitNewWork(pending map[common.Address]types.Transactions, timestamp int64) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	tstart := time.Now()
+	parent := w.chain.CurrentBlock()
+
+	if parent.Time().Cmp(new(big.Int).SetInt64(timestamp)) >= 0 {
+		timestamp = parent.Time().Int64() + 1
+	}
+
+	// this will ensure we're not going off too far in the future
+	if now := time.Now().Unix(); timestamp > now+1 {
+		wait := time.Duration(timestamp-now) * time.Second
+		log.Info("Mining too far in the future", "wait", common.PrettyDuration(wait))
+		time.Sleep(wait)
+	}
+
+	num := parent.Number()
+	var header *types.Header
+	if _, ok := w.engine.(*deb.Deb); ok {
+		header = &types.Header{
+			ParentHash: parent.Hash(),
+			Number:     num.Add(num, common.Big1),
+			// Set GasLimit in Prepare() using otprn
+			//GasLimit:   core.CalcGasLimit(parent, w.gasFloor, w.gasCeil),
+			Extra: w.extra,
+			Time:  big.NewInt(timestamp),
+		}
+	} else {
+		header = &types.Header{
+			ParentHash: parent.Hash(),
+			Number:     num.Add(num, common.Big1),
+			GasLimit:   core.CalcGasLimitEth(parent.GasLimit(), w.gasCeil),
+			Extra:      w.extra,
+			Time:       big.NewInt(timestamp),
+		}
+	}
+
+	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
+	if w.isRunning() {
+		if w.coinbase == (common.Address{}) {
+			log.Error("Refusing to mine without coinbase")
+			return
+		}
+
+		header.Coinbase = w.coinbase
+		if err := w.engine.Prepare(w.chain, header); err != nil {
+			log.Error("Failed to prepare header for mining", "err", err)
+			return
+		}
+
+		// If we are care about TheDAO hard-fork check whether to override the extra-data or not
+		if daoBlock := w.config.DAOForkBlock; daoBlock != nil {
+			// Check whether the block is among the fork extra-override range
+			limit := new(big.Int).Add(daoBlock, params.DAOForkExtraRange)
+			if header.Number.Cmp(daoBlock) >= 0 && header.Number.Cmp(limit) < 0 {
+				// Depending whether we support or oppose the fork, override differently
+				if w.config.DAOForkSupport {
+					header.Extra = common.CopyBytes(params.DAOForkBlockExtra)
+				} else if bytes.Equal(header.Extra, params.DAOForkBlockExtra) {
+					header.Extra = []byte{} // If miner opposes, don't let it use the reserved extra-data
+				}
+			}
+		}
+
+		// Could potentially happen if starting to mine in an odd state.
+		err := w.makeCurrent(parent, header)
+		if err != nil {
+			log.Error("Failed to create mining context", "err", err)
+			return
+		}
+
+		// Create the current work task and check any fork transitions needed
+		env := w.current
+		if w.config.DAOForkSupport && w.config.DAOForkBlock != nil && w.config.DAOForkBlock.Cmp(header.Number) == 0 {
+			misc.ApplyDAOHardFork(env.state)
+		}
+
+		// Accumulate the uncles for the current block
+		for hash, uncle := range w.possibleUncles {
+			if uncle.NumberU64()+staleThreshold <= header.Number.Uint64() {
+				delete(w.possibleUncles, hash)
+			}
+		}
+
+		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+		for _, account := range w.eth.TxPool().Locals() {
+			if txs := remoteTxs[account]; len(txs) > 0 {
+				delete(remoteTxs, account)
+				localTxs[account] = txs
+			}
+		}
+
+		if len(localTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
+			if w.commitTransactions(txs, w.coinbase, nil) {
+				return
+			}
+		}
+		if len(remoteTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
+			if w.commitTransactions(txs, w.coinbase, nil) {
+				return
+			}
+		}
+
+		if err := w.commit(w.fullTaskHook, true, tstart); err != nil {
+			log.Error("Failed commit for mining", "err", err, "update", true)
+			return
+		}
+	}
+}
+
+// Layer2의 경우는 서버에서 채굴 리스트를 받아서 채굴을 진행
+func (w *worker) CommitLoop() {
+	for {
+		select {
+		// ToDo: CSW ===> aaaaaa
+		//case txlist <- w.txListCh:
+		//	w.layer2CommitNewWork(pending /*map[common.Address]types.Transactions*/, time.Now().Unix())
+		case <-w.exitCh:
+			return
+		}
+	}
 }
 
 // commit runs any post-transaction state modifications, assembles the final block

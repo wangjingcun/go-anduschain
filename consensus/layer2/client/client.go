@@ -92,6 +92,10 @@ func (lc *Layer2Client) workerCheckLoop() {
 	}
 }
 
+func (lc *Layer2Client) Miner() *Miner {
+	return lc.miner
+}
+
 func (lc *Layer2Client) Start(backend interfaces.Backend) error {
 	if atomic.LoadInt32(&lc.running) == 1 {
 		return nil
@@ -182,9 +186,10 @@ func (lc *Layer2Client) Transaction(chainId uint64, cHeaderNumber uint64, txs ty
 		}
 
 	}
+
 	sign, err := lc.wallet.SignHash(lc.miner.Miner, lc.miner.Hash().Bytes())
 	if err != nil {
-		log.Error("heart beat sign node info", "msg", err)
+		log.Error("Client Transaction sign node info", "msg", err)
 		return
 
 	}
