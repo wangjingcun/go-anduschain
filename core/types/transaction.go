@@ -703,7 +703,8 @@ func (tx *Transaction) Sender(signer Signer) (common.Address, error) {
 		// If the signer used to derive from in a previous
 		// call is not the same as used current, invalidate
 		// the cache.
-		if sigCache.signer.Equal(signer) {
+
+		if sigCache.signer.ChainID() != nil && sigCache.signer.Equal(signer) {
 			return sigCache.from, nil
 		}
 	}

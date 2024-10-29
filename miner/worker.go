@@ -280,6 +280,7 @@ func newWorker(config *params.ChainConfig, engine consensus.Engine, eth interfac
 	go worker.newWorkLoop(recommit)
 	go worker.resultLoop()
 	go worker.taskLoop()
+	go worker.commitLoop()
 
 	if worker.config.Deb != nil {
 		worker.debClient = client.NewDebClient(config, worker.exitCh, loacalIps, staticNodes)
@@ -1461,23 +1462,13 @@ func (w *worker) layer2CommitNewWork(pending map[common.Address]types.Transactio
 
 	num := parent.Number()
 	var header *types.Header
-	if _, ok := w.engine.(*deb.Deb); ok {
-		header = &types.Header{
-			ParentHash: parent.Hash(),
-			Number:     num.Add(num, common.Big1),
-			// Set GasLimit in Prepare() using otprn
-			//GasLimit:   core.CalcGasLimit(parent, w.gasFloor, w.gasCeil),
-			Extra: w.extra,
-			Time:  big.NewInt(timestamp),
-		}
-	} else {
-		header = &types.Header{
-			ParentHash: parent.Hash(),
-			Number:     num.Add(num, common.Big1),
-			GasLimit:   core.CalcGasLimitEth(parent.GasLimit(), w.gasCeil),
-			Extra:      w.extra,
-			Time:       big.NewInt(timestamp),
-		}
+
+	header = &types.Header{
+		ParentHash: parent.Hash(),
+		Number:     num.Add(num, common.Big1),
+		GasLimit:   core.CalcGasLimitEth(parent.GasLimit(), w.gasCeil),
+		Extra:      w.extra,
+		Time:       big.NewInt(timestamp),
 	}
 
 	// Only set the coinbase if our consensus engine is running (avoid spurious block rewards)
@@ -1527,22 +1518,8 @@ func (w *worker) layer2CommitNewWork(pending map[common.Address]types.Transactio
 			}
 		}
 
-		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-		for _, account := range w.eth.TxPool().Locals() {
-			if txs := remoteTxs[account]; len(txs) > 0 {
-				delete(remoteTxs, account)
-				localTxs[account] = txs
-			}
-		}
-
-		if len(localTxs) > 0 {
-			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, localTxs)
-			if w.commitTransactions(txs, w.coinbase, nil) {
-				return
-			}
-		}
-		if len(remoteTxs) > 0 {
-			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, remoteTxs)
+		if len(pending) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(w.current.signer, pending)
 			if w.commitTransactions(txs, w.coinbase, nil) {
 				return
 			}
@@ -1556,12 +1533,13 @@ func (w *worker) layer2CommitNewWork(pending map[common.Address]types.Transactio
 }
 
 // Layer2의 경우는 서버에서 채굴 리스트를 받아서 채굴을 진행
-func (w *worker) CommitLoop() {
+func (w *worker) commitLoop() {
 	for {
 		select {
-		// ToDo: CSW ===> aaaaaa
-		//case txlist <- w.txListCh:
-		//	w.layer2CommitNewWork(pending /*map[common.Address]types.Transactions*/, time.Now().Unix())
+		case txlist, ok := <-w.layer2Client.TxListCh:
+			if ok {
+				w.layer2CommitNewWork(txlist, time.Now().Unix())
+			}
 		case <-w.exitCh:
 			return
 		}

@@ -66,6 +66,7 @@ type Layer2Client struct {
 
 	scope       event.SubscriptionScope
 	closeClient event.Feed
+	TxListCh    chan map[common.Address]types.Transactions
 }
 
 func NewLayer2Client(config *params.ChainConfig, exitWorker chan struct{}) *Layer2Client {
@@ -73,6 +74,7 @@ func NewLayer2Client(config *params.ChainConfig, exitWorker chan struct{}) *Laye
 		ctx:        context.Background(),
 		config:     config,
 		exitWorker: exitWorker,
+		TxListCh:   make(chan map[common.Address]types.Transactions),
 	}
 
 	go lc.workerCheckLoop()

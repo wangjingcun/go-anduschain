@@ -187,6 +187,22 @@ func (lc *Layer2Client) receiveOrdererTransactionLoop(errCh chan error) {
 		}
 		// 이 리스트를 이용하여 블록생성.. 채굴과정으로 넘어가야 함
 		// 채널을 이용하여 마이너에 데이터 전송해줘야 함
-		// ToDo: CSW ===> aaaaaa
+		txMap := makeTxMapList(txLists)
+		lc.TxListCh <- txMap
+
 	}
+}
+
+func makeTxMapList(list types.Transactions) map[common.Address]types.Transactions {
+	mapTx := make(map[common.Address]types.Transactions)
+	for _, tx := range list {
+		sender, _ := tx.Sender(types.EIP155Signer{})
+		if mapTx[sender] == nil {
+			mapTx[sender] = make(types.Transactions, 0)
+			mapTx[sender] = append(mapTx[sender], tx)
+		} else {
+			mapTx[sender] = append(mapTx[sender], tx)
+		}
+	}
+	return mapTx
 }
