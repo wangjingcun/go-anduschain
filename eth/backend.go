@@ -395,6 +395,9 @@ func (s *Ethereum) StartMining(threads int) error {
 			if c, ok := s.engine.(*sse.Sse); ok {
 				c.Authorize(eb, wallet.SignData)
 			}
+			if c, ok := s.engine.(*layer2.Layer2); ok {
+				c.Authorize(eb, wallet.SignData)
+			}
 		}
 
 		// If mining is started, we can disable the transaction rejection mechanism
