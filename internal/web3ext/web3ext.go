@@ -34,23 +34,6 @@ var Modules = map[string]string{
 const Deb_JS = `
 web3._extend({
 	property: 'deb',
-	methods: [
-		new web3._extend.Method({
-			name: 'genVrfKey',
-			call: 'deb_genVrfKey',
-			params: 0
-		}),
-		new web3._extend.Method({
-			name: 'vrfProof',
-			call: 'deb_vrfProof',
-			params: 1
-		}),
-		new web3._extend.Method({
-			name: 'vrfVerify',
-			call: 'deb_vrfVerify',
-			params: 2
-		})
-	],
 	properties: [
 		new web3._extend.Property({
 			name: 'fairnodePubKey',
