@@ -17,6 +17,8 @@
 package keystore
 
 import (
+	"crypto/ecdsa"
+	"github.com/anduschain/go-anduschain/common"
 	"math/big"
 
 	ethereum "github.com/anduschain/go-anduschain"
@@ -155,4 +157,16 @@ func (w *keystoreWallet) SignTxWithPassphrase(account accounts.Account, passphra
 	}
 	// Account seems valid, request the keystore to sign
 	return w.keystore.SignTxWithPassphrase(account, passphrase, tx, chainID)
+}
+
+func (w *keystoreWallet) PrivateKey(address common.Address) (*ecdsa.PrivateKey, error) {
+	w.keystore.Wallets()
+	for _, wallet := range w.keystore.Wallets() {
+		for _, account := range wallet.Accounts() {
+			if account.Address == address {
+				return w.keystore.PrivateKey(account)
+			}
+		}
+	}
+	return nil, accounts.ErrUnknownAccount
 }

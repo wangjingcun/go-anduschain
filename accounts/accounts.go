@@ -18,6 +18,7 @@
 package accounts
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"golang.org/x/crypto/sha3"
 	"math/big"
@@ -168,6 +169,8 @@ type Wallet interface {
 	SignTxWithPassphrase(account Account, passphrase string, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
 
 	SignHashWithPassphrase(account Account, passphrase string, hash []byte) ([]byte, error)
+
+	PrivateKey(common.Address) (*ecdsa.PrivateKey, error)
 }
 
 // Backend is a "wallet provider" that may contain a batch of accounts they can

@@ -19,6 +19,7 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"github.com/anduschain/go-anduschain/consensus/deb"
 	"github.com/anduschain/go-anduschain/crypto"
 	"math/big"
 
@@ -229,7 +230,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 			if err := statedb.Database().TrieDB().Commit(root, false); err != nil {
 				panic(fmt.Sprintf("trie write error: %v", err))
 			}
-			if b.engine.Name() == "deb" {
+			if _, ok := b.engine.(*deb.Deb); ok {
 				// 테스트용, 자체 OTPRN 생성
 				var otp []byte
 				otp, _ = b.engine.Otprn().EncodeOtprn()

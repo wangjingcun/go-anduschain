@@ -396,6 +396,11 @@ func (s *Ethereum) StartMining(threads int) error {
 				c.Authorize(eb, wallet.SignData)
 			}
 			if c, ok := s.engine.(*layer2.Layer2); ok {
+				priKey, err := wallet.PrivateKey(eb)
+				if err == nil {
+					c.SetPrivatekey(priKey)
+				}
+
 				c.Authorize(eb, wallet.SignData)
 			}
 		}

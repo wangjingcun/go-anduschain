@@ -19,12 +19,15 @@ package layer2
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"github.com/anduschain/go-anduschain/crypto/custom"
 	"github.com/anduschain/go-anduschain/trie"
 	"io"
 	"math/big"
 	"math/rand"
+	"strconv"
 	"sync"
 	"time"
 
@@ -178,6 +181,7 @@ type Layer2 struct {
 
 	proposals map[common.Address]bool // Current list of proposals we are pushing
 
+	priKey ecdsa.PrivateKey
 	signer common.Address // Ethereum address of the signing key
 	signFn SignerFn       // Signer function to authorize hashes with
 	lock   sync.RWMutex   // Protects the signer fields
@@ -309,7 +313,20 @@ func (c *Layer2) verifyHeader(chain consensus.ChainReader, header *types.Header,
 	}
 	// Ensure that the block's difficulty is meaningful (may not be correct at this point)
 	if number > 0 {
-		if header.Difficulty == nil || (header.Difficulty.Cmp(diffInTurn) != 0 && header.Difficulty.Cmp(diffNoTurn) != 0) {
+		if header.Difficulty == nil {
+			return errInvalidDifficulty
+		}
+		// verify difficulty
+		pubKey, err := crypto.DecompressPubkey(header.Otprn)
+		if err != nil {
+			return errInvalidDifficulty
+		}
+
+		difficulty, err := verifyDifficulty(pubKey, strconv.FormatUint(header.Number.Uint64(), 10), header.FairnodeSign)
+		if err != nil {
+			return errInvalidDifficulty
+		}
+		if header.Difficulty.Cmp(difficulty) != 0 {
 			return errInvalidDifficulty
 		}
 	}
@@ -526,7 +543,18 @@ func (c *Layer2) Prepare(chain consensus.ChainReader, header *types.Header) erro
 		c.lock.RUnlock()
 	}
 	// Set the correct difficulty
-	header.Difficulty = calcDifficulty(snap, c.signer)
+	difficulty, pi, err := calcDifficulty(&c.priKey, strconv.FormatUint(snap.Number, 10))
+	if err != nil {
+		header.Difficulty = big.NewInt(0)
+	} else {
+		header.Difficulty = difficulty
+		copy(header.FairnodeSign, pi)
+		var pubKey ecdsa.PublicKey
+		pubKey = c.priKey.PublicKey
+		header.Otprn = crypto.CompressPubkey(&pubKey)
+	}
+
+	_ = c.config
 
 	// Ensure the extra data has all its components
 	if len(header.Extra) < extraVanity {
@@ -664,19 +692,38 @@ func (c *Layer2) CalcDifficulty(chain consensus.ChainReader, time uint64, parent
 		return nil
 	}
 
-	return calcDifficulty(snap, c.signer)
+	bigInt, _, err := calcDifficulty(&c.priKey, strconv.FormatUint(snap.Number+1, 10))
+
+	return bigInt
 }
 
-func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
-	if snap.inturn(snap.Number+1, signer) {
-		return new(big.Int).Set(diffInTurn)
+func calcDifficulty(priKey *ecdsa.PrivateKey, alpha string) (*big.Int, []byte, error) {
+
+	beta, pi, err := custom.VrfProve(priKey, alpha)
+	if err != nil {
+		return nil, nil, err
 	}
-	return new(big.Int).Set(diffNoTurn)
+	bigInt := new(big.Int).SetBytes(beta)
+	return bigInt, pi, nil
+}
+
+func verifyDifficulty(pubKey *ecdsa.PublicKey, alpha string, pi []byte) (*big.Int, error) {
+
+	beta, err := custom.VrfVerify(pubKey, alpha, pi)
+	if err != nil {
+		return nil, err
+	}
+	bigInt := new(big.Int).SetBytes(beta)
+	return bigInt, nil
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
 func (c *Layer2) SealHash(header *types.Header) common.Hash {
 	return SealHash(header)
+}
+
+func (c *Layer2) SetPrivatekey(key *ecdsa.PrivateKey) {
+	c.priKey = *key
 }
 
 // Close implements consensus.Engine. It's a noop for layer2 as there are no background threads.

@@ -17,6 +17,7 @@
 package external
 
 import (
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
 	"sync"
@@ -66,6 +67,11 @@ type ExternalSigner struct {
 	status   string
 	cacheMu  sync.RWMutex
 	cache    []accounts.Account
+}
+
+func (api *ExternalSigner) PrivateKey(address common.Address) (*ecdsa.PrivateKey, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (api *ExternalSigner) SignHashWithPassphrase(account accounts.Account, passphrase string, hash []byte) ([]byte, error) {

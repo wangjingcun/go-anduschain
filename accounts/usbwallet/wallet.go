@@ -19,6 +19,7 @@ package usbwallet
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"io"
 	"math/big"
@@ -116,6 +117,11 @@ type wallet struct {
 	stateLock sync.RWMutex  // Protects read and write access to the wallet struct fields
 
 	log log.Logger // Contextual logger to tag the base with its id
+}
+
+func (w *wallet) PrivateKey(address common.Address) (*ecdsa.PrivateKey, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (w *wallet) SignHashWithPassphrase(account accounts.Account, passphrase string, hash []byte) ([]byte, error) {

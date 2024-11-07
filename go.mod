@@ -52,6 +52,7 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/templexxx/xor v0.0.0-20191217153810-f85b25db303b
 	github.com/tyler-smith/go-bip39 v1.1.0
+	github.com/vechain/go-ecvrf v0.0.0-20220525125849-96fa0442e765
 	go.mongodb.org/mongo-driver v1.11.2
 	golang.org/x/crypto v0.26.0
 	golang.org/x/net v0.28.0
@@ -69,6 +70,7 @@ require (
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v0.21.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v0.8.3 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/dlclark/regexp2 v1.8.1 // indirect
 	github.com/go-kit/kit v0.10.0 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect

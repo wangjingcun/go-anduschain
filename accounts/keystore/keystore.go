@@ -505,3 +505,17 @@ func zeroKey(k *ecdsa.PrivateKey) {
 		b[i] = 0
 	}
 }
+
+// SignTx signs the given transaction with the requested account.
+func (ks *KeyStore) PrivateKey(a accounts.Account) (*ecdsa.PrivateKey, error) {
+	// Look up the key to sign with and abort if it cannot be found
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
+
+	unlockedKey, found := ks.unlocked[a.Address]
+	if !found {
+		return nil, ErrLocked
+	}
+
+	return unlockedKey.PrivateKey, nil
+}
