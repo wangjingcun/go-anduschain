@@ -316,17 +316,27 @@ func (c *Layer2) verifyHeader(chain consensus.ChainReader, header *types.Header,
 		if header.Difficulty == nil {
 			return errInvalidDifficulty
 		}
-		// verify difficulty
+		// Get Miner PublicKey
 		pubKey, err := crypto.DecompressPubkey(header.Otprn)
 		if err != nil {
+			log.Info("VerifyDifficulty DecompressPubkey", "error", err)
 			return errInvalidDifficulty
 		}
 
+		addr := crypto.PubkeyToAddress(*pubKey).Hex()
+		if addr != header.Coinbase.Hex() {
+			log.Info("VerifyDifficulty Compare Address", "error", err)
+			return errInvalidDifficulty
+		}
+
+		// Verify Difficulty
 		difficulty, err := verifyDifficulty(pubKey, strconv.FormatUint(header.Number.Uint64(), 10), header.FairnodeSign)
 		if err != nil {
+			log.Info("VerifyDifficulty", "error", err)
 			return errInvalidDifficulty
 		}
 		if header.Difficulty.Cmp(difficulty) != 0 {
+			log.Info("VerifyDifficulty Difficulty Compare", "error", err)
 			return errInvalidDifficulty
 		}
 	}
